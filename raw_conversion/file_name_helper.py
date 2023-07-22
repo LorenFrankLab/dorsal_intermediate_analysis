@@ -3,22 +3,58 @@ import os
 import pandas as pd
 import re
 
-class FileNameHelper():
+from utils import verbose_printer
+from utils.abstract_classes import DataReader
+from utils.data_helpers import parse_iterable_inputs
 
-    from .user_settings import (data_path, epoch_names_list, camera_names_list)
-    _data_path = data_path
+class FileNameHelper(DataReader):
+
+    from config import (epoch_names_list, camera_names_list)
     _epoch_names_list = epoch_names_list
     _camera_names_list = camera_names_list
-
-    def __init__(self, subject_name, dates=None, n_epochs=None):
+    _file_types = ('raw', 'metadata', 'yml', 'nwb', 'video')
+    
+    def __init__(self, subject_name, dates=None):
         
-        # Ensure number of dates matches number of epoch counts
-        if all([dates, n_epochs]) and len(dates) != len(n_epochs):
-            raise ValueError(f"Number of dates doesn't match number of epoch counts")
-        self._subject_name = subject_name
-        self._dates = dates
-        self._n_dates = len(self._dates) if dates is not None else None
-        self._n_epochs = n_epochs
+        super().__init__(subject_name, dates=dates)
+        # Create expected file names for the given dates
+        self._update()
+
+    @property
+    def file_paths(self):
+        self._update_file_paths()
+        return self._file_paths
+    
+    @property
+    def expected_file_names(self):
+        self._update_expected_file_names()
+        return self._expected_file_names
+
+
+    def _update(self):
+        
+        # Get file paths and expected file names
+        self._update_file_paths()
+        self._update_expected_file_names()
+
+    def _update_file_paths(self):
+
+        # Get paths of all data files
+        file_paths_list = [None]*len(FileNameHelper._file_types)
+        for ndx, file_type in enumerate(FileNameHelper._file_types):
+            file_paths_list[ndx] = self._get_file_paths_dataframe_by_type(file_type)
+        self._file_paths = pd.concat(file_paths_list)
+        self._file_paths.reset_index(inplace=True, drop=True)
+
+    def _update_expected_file_names(self):
+    
+        # Get expected file names for all data files
+        expected_file_names_list = [None]*len(FileNameHelper._file_types)
+        for ndx, file_type in enumerate(FileNameHelper._file_types):
+            expected_file_names_list[ndx] = self._get_expected_file_names_dataframe_by_type(file_type)
+        self._expected_file_names = pd.concat(expected_file_names_list)
+        self._expected_file_names.reset_index(inplace=True, drop=True)
+
 
     def _get_file_name_prefix(self, date, epoch_idx=None, epoch_number=None, epoch_name=None, camera_name=None):
 
@@ -84,59 +120,50 @@ class FileNameHelper():
         # By default, this is '.' + camera_name
         camera_infix = '.' + camera_name
         return camera_infix
+
     
-    def _get_paths_by_file_type(self, file_type):
+    def _get_file_paths_by_type(self, file_type):
 
         # Get file paths matching the file type
         file_paths = sorted(self._get_file_paths_dataframe_by_type(file_type).path_name.tolist())
         return file_paths
     
-    def _get_expected_names_by_path_type(self, path_type):
+    def _get_expected_file_names_by_type(self, file_type):
 
-        # Get expected file names matching the path type
-        expected_file_names_df = self._get_expected_file_names_dataframe_by_type(path_type)
-        expected_file_names = sorted(expected_file_names_df.file_names.tolist())
-        expected_full_names = sorted(expected_file_names_df.full_names.tolist())
+        # Get expected file names matching the file type
+        expected_file_names_df = self._get_expected_file_names_dataframe_by_type(file_type)
+        expected_file_names = sorted(expected_file_names_df.file_name.tolist())
+        expected_full_names = sorted(expected_file_names_df.full_name.tolist())
         return expected_file_names, expected_full_names
 
 
-    def _get_file_paths_dataframe_by_type(self, path_type):
+    def _get_file_paths_dataframe_by_type(self, file_type):
         
         # Get the path of the specified type
-        if path_type == 'sessions':
-            path_names = self._get_sessions_path()
-        elif path_type == 'raw':
+        if file_type == 'raw':
             path_names = self._get_raw_path()
-        elif path_type == 'metadata':
+        elif file_type == 'metadata':
             path_names = self._get_metadata_path()
-        elif path_type == 'yml':
+        elif file_type == 'yml':
             path_names = self._get_yml_files_path()
-        elif path_type == 'nwb':
+        elif file_type == 'nwb':
             path_names = self._get_nwb_files_path()
-        elif path_type == 'video':
+        elif file_type == 'video':
             path_names = self._get_video_files_path()
         else:
-            raise NotImplementedError(f"Couldn't get path for file type '{path_type}'")
+            raise NotImplementedError(f"Couldn't get path for file type '{file_type}'")
 
         # Transform list of path names to dataframe
         path_names = list(itertools.chain(path_names))
         path_names_df = pd.DataFrame(path_names, columns=['path_name'])
-        path_names_df['path_type'] = path_type
+        path_names_df['file_type'] = file_type
         return path_names_df
-
-    def _get_sessions_path(self):
-
-        # Get the directory holding all subjects' data for each session
-        # By default, this is data_path/subject_name/raw
-        sessions_path = [os.path.join(FileNameHelper._data_path, self._subject_name, 'raw')]
-        return sessions_path
 
     def _get_raw_path(self):
 
         # Get the directory holding a subject's .rec files for the given days of recording
         # By default, this is data_path/subject_name/raw/date
-        sessions_path = self._get_sessions_path()[0]
-        raw_path = [os.path.join(sessions_path, date) for date in self._dates]
+        raw_path = [os.path.join(self._sessions_path, date) for date in self._dates]
         return raw_path
 
     def _get_metadata_path(self):
@@ -186,10 +213,11 @@ class FileNameHelper():
             raise NotImplementedError(f"Couldn't get expected file names for file type '{file_type}'")
         
         # Get full names for all file names and transform into a dataframe
-        path_names, file_names, full_names = FileNameHelper._get_filtered_file_names_info(self._get_paths_by_file_type(file_type), file_names)
+        path_names, file_names, full_names = FileNameHelper._get_filtered_file_names_info(self._get_file_paths_by_type(file_type), file_names)
         file_names_data = zip( list(itertools.chain(*path_names)), list(itertools.chain(*file_names)), list(itertools.chain(*full_names)) )
         file_names_df = pd.DataFrame(file_names_data, columns=['path_name', 'file_name', 'full_name'])
         file_names_df['file_type'] = file_type
+        file_names_df.reset_index(inplace=True)
         return file_names_df
 
     def _get_expected_raw_file_names(self):
@@ -332,6 +360,7 @@ class FileNameHelper():
     @staticmethod
     def _get_filtered_file_names_info(file_paths, file_names, match_pattern='.*'):
 
+        file_paths, file_names = parse_iterable_inputs(file_paths, file_names)
         # Filter file names using regular expressions and get file paths and full names
         path_names = [None]*len(file_names)
         matching_names = [None]*len(file_names)
@@ -354,6 +383,7 @@ class FileNameHelper():
     @staticmethod
     def _file_names_regex(file_names, pattern, full_match=False):
        
+        file_names = parse_iterable_inputs(file_names)
         # Return empty list if list of file names is empty
         if not file_names:
             return []
@@ -367,6 +397,7 @@ class FileNameHelper():
     @staticmethod
     def _compare_file_names(file_names, valid_names):
 
+        file_names, valid_names = parse_iterable_inputs(file_names, valid_names)
         # Ensure that lists of file names and valid names are unique
         assert len(valid_names) == len(set(valid_names)), \
             f"Repeat names found in list of expected file names"
@@ -383,6 +414,7 @@ class FileNameHelper():
     @staticmethod
     def _file_names_to_full_names(file_names, file_path):
 
+        file_names = parse_iterable_inputs(file_names)
         # Convert list of file names to list of full names
         full_names = [os.path.join(file_path, name) for name in file_names]
         return full_names
@@ -390,6 +422,7 @@ class FileNameHelper():
     @staticmethod
     def _full_names_to_file_names(full_names):
 
+        full_names = parse_iterable_inputs(full_names)
         # Return empty lists if list of names is empty
         if not full_names:
             return [], []
@@ -397,3 +430,23 @@ class FileNameHelper():
         file_name_data = [os.path.split(name) for name in full_names]
         file_paths, file_names = zip(*file_name_data)
         return list(file_paths), list(file_names)
+
+    def _print(self):
+        
+        # Print file paths and expected file names associated with subject
+        verbose_printer.print_header(f"{self._subject_name} data paths and expected file names")
+        for file_type in FileNameHelper._file_types:
+            file_paths = self._file_paths[self._file_paths.file_type == file_type].path_name.tolist()
+            
+            if file_type is 'raw':
+                for date, file_path in zip(self._dates, file_paths):
+                    verbose_printer.print_bold(f"{file_path}")
+                    expected_file_names = self._expected_file_names[self._expected_file_names.file_type == file_type].file_name.tolist()
+                    expected_file_names = FileNameHelper._file_names_regex(expected_file_names, date)
+                    verbose_printer.print_iterable(expected_file_names, prefix='  ')
+                    verbose_printer.print_newline()
+            else:
+                verbose_printer.print_bold(f"{file_paths[0]}")
+                expected_file_names = self._expected_file_names[self._expected_file_names.file_type == file_type].file_name.tolist()
+                verbose_printer.print_iterable(expected_file_names, prefix='  ')
+                verbose_printer.print_newline()

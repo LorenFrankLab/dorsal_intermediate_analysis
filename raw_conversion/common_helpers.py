@@ -4,28 +4,37 @@ import numpy as np
 import pandas as pd
 from time import time
 
-def print_verbose(verbose, *args, color=None):
+def print_verbose(print_bool, *args, modifier=None, color=None, highlight=None):
     
-    # Create prefix and suffix to display colored text
-    if not color:
-        color_tuple = ('', '')
-    elif color == 'red':
-        color_tuple = ('\x1b[031m', '\x1b[0m')
-    elif color == 'green':
-        color_tuple = ('\x1b[032m', '\x1b[0m')
-    elif color == 'blue':
-        color_tuple = ('\x1b[034m', '\x1b[0m')
-    elif color == 'magenta':
-        color_tuple = ('\x1b[035m', '\x1b[0m')
-    elif color == 'yellow':
-        color_tuple = ('\x1b[033m', '\x1b[0m')
-    else:
-        raise ValueError(f"{color} is not an allowed color")
+    code_dict = _get_ansi_escape_codes()
+    # Ensure modifiers, text colors, and highlight colors are valid
+    if modifier and modifier not in code_dict['modifier'].keys():
+        raise ValueError(f"Text modifier '{modifier}' not found in allowed modifiers {code_dict['modifier'].keys()}")
+    if color and color not in code_dict['foreground_color'].keys():
+        raise ValueError(f"Text color '{color}' not found in allowed text colors {code_dict['foreground_color'].keys()}")
+    if highlight and highlight not in code_dict['background_color'].keys():
+        raise ValueError(f"Highlight color '{highlight}' not found in allowed highlight colors {code_dict['background_color'].keys()}")
 
-    # Print each string if verbose is true
-    if verbose:
+    escape_sequence = '\x1b['
+    # Create escape sequence to display modified text
+    if modifier:
+        escape_sequence += code_dict['modifier'][modifier] + ';'
+    # Create escape sequence to display colored foreground
+    if color:
+        escape_sequence += code_dict['foreground_color'][color] + ';'
+    # Create escape sequence to display colored background
+    if highlight:
+        escape_sequence += code_dict['background_color'][highlight] + ';'
+    # Remove appended semicolon if any ANSI escape codes were specified
+    if any([modifier, color, highlight]):
+        escape_sequence = escape_sequence[:-1]
+    # Close escape sequences
+    escape_sequence += 'm'
+
+    # Print each string
+    if print_bool:
         for string in args:
-            print(color_tuple[0] + string + color_tuple[1])
+            print(escape_sequence + string + '\x1b[0m')
 
 def function_timer(function_name):
     
@@ -46,11 +55,10 @@ def function_timer(function_name):
             t1 = time()
             t_elapsed = t1-t0
             print_verbose(True,
-                          f"Time elapsed: {t_elapsed:.6f} seconds",
+                          f"Time elapsed: {t_elapsed:.6f} seconds\n",
                           color='magenta')
         else:
             out = function_name(*args, **kwargs)
-
         return out
     return wrapper
 
@@ -59,7 +67,7 @@ def no_overwrite_handler_file(message):
     # Print message if file already exists
     print_verbose(True,
                   message,
-                  color='yellow')
+                  modifier='bold', color='yellow')
 
 def no_overwrite_handler_table(message):
     
@@ -68,6 +76,34 @@ def no_overwrite_handler_table(message):
                   message,
                   color='yellow')
 
+def _get_ansi_escape_codes():
+
+    # Create dictionaries of ANSI codes for foreground and background text colors and text modifiers
+    fg_color_code_dict = {'black' : '0',
+                          'red' : '31',
+                          'green' : '32',
+                          'yellow' : '33',
+                          'blue' : '34',
+                          'magenta' : '35',
+                          'cyan' : '36',
+                          'white' : '37'}
+    bg_color_code_dict = {'black' : '40',
+                          'red' : '41',
+                          'green' : '42',
+                          'yellow' : '43',
+                          'blue' : '44',
+                          'magenta' : '45',
+                          'cyan' : '46',
+                          'white' : '47'}
+    modifier_code_dict = {'bold' : '1',
+                          'italics' : '3',
+                          'underline' : '4',
+                          'strikethrough' : '9'}
+
+    code_dict = {'foreground_color' : fg_color_code_dict,
+                 'background_color' : bg_color_code_dict,
+                 'modifier' : modifier_code_dict}
+    return code_dict
 
 def _sort_dataframe_numeric_string_OLD(data_df, sort_columns):
 

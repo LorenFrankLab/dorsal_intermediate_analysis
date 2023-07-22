@@ -1,14 +1,16 @@
 from collections import namedtuple
 import numpy as np
-import os
 import pandas as pd
 import re
 
-from .common_abstract_classes import DataWriter
-from .common_helpers import (print_verbose, function_timer, no_overwrite_handler_file)
-from .file_utils import (FileInfo, FileNameHelper)
+from .file_info import FileInfo
 
-class MetadataWriter(DataWriter):
+from .file_name_helper import FileNameHelper
+
+from utils import verbose_printer
+from utils.abstract_classes import DataReader
+
+class MetadataConverter(DataReader):
 
     # Tuple of valid metadata types
     _metadata_types = ('subject', 'session', 'electrode', 'dio')
@@ -32,63 +34,25 @@ class MetadataWriter(DataWriter):
                          'electrode' : _Electrode,
                          'map' : _Map}
 
-    def __init__(self, subject_name, dates=None, overwrite=False, verbose=False, timing=False):
+    def __init__(self, subject_name, dates=None):
 
         # Enable overwriting existing .yml files, verbose output, and timing
-        super().__init__(overwrite=overwrite, verbose=verbose, timing=timing)
+        super().__init__(subject_name, dates=dates, verbose=False, timing=False)
 
         # Get file information for raw data and metadata
-        self._file_info = FileInfo(subject_name, dates=dates)       
-        # Get subject and dates information
-        self._subject_name = self._file_info._subject_name
-        self._dates = self._file_info._dates
-        
+        self._file_info = FileInfo(self._subject_name, dates=self._dates)       
         # Get index column name and labels and column names used to slice metadata
-        self._metadata_slice_names = MetadataWriter._create_metadata_slice_names()
+        self._metadata_slice_names = MetadataConverter._create_metadata_slice_names()
         # Get only metadata for the specified subject and dates
-        self._metadata_slice_names['subject']['labels'] = subject_name
-        self._metadata_slice_names['session']['labels'] = dates
-        
+        self._metadata_slice_names['subject']['labels'] = self._subject_name
+        self._metadata_slice_names['session']['labels'] = self._dates
         # Read .csv metadata files into dataframes and convert them to nested dictionaries
         self._update()
-
-
-    @property
-    def subject_name(self):
-        return self._subject_name
-
-    @property
-    def dates(self):
-        return self._dates
 
     @property
     def metadata(self):
         return self._metadata
         
-
-    @function_timer
-    def create_yml_files(self):
-
-        # Create a .yml metadata file for each date
-        for date in self._dates:
-            self._write_metadata_file(date)
-    
-    def print(self, dates=None):
-
-        # Print metadata for all dates if no dates are specified
-        if dates is None:
-            dates = self._dates
-        else:
-            # Ensure specified dates are valid
-            dates_diff = set(dates) - set(self._dates)
-            if dates_diff:
-                raise ValueError(f"The following dates weren't found in the MetadataWriter instance: {dates_diff}")
-        
-        # Print metadata
-        for date in dates:
-            txt = self._metadata_to_text(date)
-            print(f"{txt}\n")
-
     def _update(self):
         
         # Update file names, expected file names, and missing and matching file names
@@ -103,7 +67,7 @@ class MetadataWriter(DataWriter):
     def _get_csv_file_names(self):
 
         # Get full names of .csv metadata files from FileInfo dataframes
-        suffix_dict = MetadataWriter._create_csv_file_suffixes()
+        suffix_dict = MetadataConverter._create_csv_file_suffixes()
         csv_name_dict = {key: None for key in suffix_dict.keys()}
         for metadata_type, suffix in suffix_dict.items():
             name = self._file_info.search_matching_file_names(suffix).full_name.tolist()
@@ -153,10 +117,10 @@ class MetadataWriter(DataWriter):
         electrode_df = self._csv_metadata['electrode']
         dio_df = self._csv_metadata['dio']
         # Get metadata template
-        template_dict = MetadataWriter._get_yml_template()
+        template_dict = MetadataConverter._get_yml_template()
         
         # Determine session ID, number of epochs in recording, and task type
-        session_id = self._file_info.get_session_dates().index(date)+1
+        session_id = self._get_session_dates().index(date)+1
         n_epochs = int(session_df['Number of epochs'])
         session_description = session_df['Session description']
         # Determine task type and description from session description
@@ -174,7 +138,7 @@ class MetadataWriter(DataWriter):
         task_dict['epoch_numbers_list'] = list(range(1, n_epochs+1))
         # Get sorted statescript file names and full paths
         task_dict['statescript_file_names_list'] = sorted(self._file_info.search_matching_file_names('^' + date + '.*.stateScriptLog$').full_name.tolist())
-        task_dict['statescript_names_list'] = ['statescript_' + FileNameHelper._get_epoch_name_info(ndx+1)[1] for ndx in range(self._file_info.get_number_of_epochs(dates=[date])[0])]
+        task_dict['statescript_names_list'] = ['statescript_' + FileNameHelper._get_epoch_name_info(ndx+1)[1] for ndx in range(self._get_number_of_epochs(dates=[date])[0])]
         # Get video file and camera names
         task_dict['video_file_names_list'] = sorted(self._file_info.search_matching_file_names('^' + date + '.*.h264$').file_name.tolist())
         task_dict['camera_names_list'] = [FileNameHelper._get_epoch_name_info(epoch)[2] for epoch in range(1, n_epochs+1)]
@@ -189,27 +153,27 @@ class MetadataWriter(DataWriter):
         template_dict['subject']['subject_id'] = self._subject_name
 
         # Fill .yml file template with acquisition metadata
-        device_tuple = MetadataWriter._create_metadata_named_tuple('trodes', 'device')
+        device_tuple = MetadataConverter._create_metadata_named_tuple('trodes', 'device')
         template_dict['data_acq_device'].append(device_tuple)
         
         # Fill .yml file template with camera metadata
         for ndx, camera_name in enumerate(set(task_dict['camera_names_list'])):
             camera_data = {'meters_per_pixel' : float(subject_df['Video scale'].split(' ')[0]),
                            'camera_name' : camera_name}
-            camera_tuple = MetadataWriter._create_metadata_named_tuple(ndx, 'camera', params=camera_data)
+            camera_tuple = MetadataConverter._create_metadata_named_tuple(ndx, 'camera', params=camera_data)
             template_dict['cameras'].append(camera_tuple)
         
         # Fill .yml file template with statescript log and video file metadata
         for ndx in range(n_epochs):
             statescript_data = {'path' : task_dict['statescript_file_names_list'][ndx],
                                 'task_epochs' : [ndx+1]}
-            statescript_tuple = MetadataWriter._create_metadata_named_tuple(task_dict['statescript_names_list'][ndx], 'statescript', params=statescript_data)
+            statescript_tuple = MetadataConverter._create_metadata_named_tuple(task_dict['statescript_names_list'][ndx], 'statescript', params=statescript_data)
             template_dict['associated_files'].append(statescript_tuple)
             
             camera_name = task_dict['camera_names_list'][ndx]
             video_data = {'camera_id' : list(set(task_dict['camera_names_list'])).index(camera_name),
                           'task_epoch' : task_dict['epoch_numbers_list'][ndx]}
-            video_tuple = MetadataWriter._create_metadata_named_tuple(task_dict['video_file_names_list'][ndx], 'video', params=video_data)
+            video_tuple = MetadataConverter._create_metadata_named_tuple(task_dict['video_file_names_list'][ndx], 'video', params=video_data)
             template_dict['associated_video_files'].append(video_tuple)
         
         # Fill .yml file template with task metadata
@@ -218,13 +182,13 @@ class MetadataWriter(DataWriter):
         task_data = {'task_description' : task_description,
                      'camera_id' : camera_ids_list,
                      'task_epochs' : task_dict['epoch_numbers_list']}
-        task_tuple = MetadataWriter._create_metadata_named_tuple(task_name, 'task', params=task_data)
+        task_tuple = MetadataConverter._create_metadata_named_tuple(task_name, 'task', params=task_data)
         template_dict['tasks'].append(task_tuple)
 
         # Fill .yml file with behavioral events (DIO) metadata
         for ndx, dio_name in enumerate(dio_df.index):
             event_data = {'name' : dio_df.loc[dio_name]['Name']}
-            event_tuple = MetadataWriter._create_metadata_named_tuple(dio_name, 'event', params=event_data)
+            event_tuple = MetadataConverter._create_metadata_named_tuple(dio_name, 'event', params=event_data)
             template_dict['behavioral_events'].append(event_tuple)
         
         # Fill .yml file with electrode groups and mapping metadata        
@@ -237,7 +201,7 @@ class MetadataWriter(DataWriter):
                               'targeted_x' : coordinates[0],
                               'targeted_y' : coordinates[1],
                               'targeted_z' : coordinates[2]}
-            electrode_tuple = MetadataWriter._create_metadata_named_tuple(int(electrode_id), 'electrode', params=electrode_data)
+            electrode_tuple = MetadataConverter._create_metadata_named_tuple(int(electrode_id), 'electrode', params=electrode_data)
             template_dict['electrode_groups'].append(electrode_tuple)
 
             bad_channels = electrode_df.loc[electrode_id]['Bad channels']
@@ -249,7 +213,7 @@ class MetadataWriter(DataWriter):
                                  '1' : 1,
                                  '2' : 2,
                                  '3' : 3}}
-            map_tuple = MetadataWriter._create_metadata_named_tuple(int(electrode_id), 'map', params=map_data)
+            map_tuple = MetadataConverter._create_metadata_named_tuple(int(electrode_id), 'map', params=map_data)
             template_dict['ntrode_electrode_group_channel_map'].append(map_tuple)
         
         return template_dict
@@ -258,9 +222,9 @@ class MetadataWriter(DataWriter):
     @classmethod
     def _create_metadata_slice_names(cls):
 
-        _metadata_column_names = {key : None for key in MetadataWriter._metadata_types}
+        _metadata_column_names = {key : None for key in MetadataConverter._metadata_types}
         # Get metadata column names, index column, and labels for each metadata type
-        for metadata_type in MetadataWriter._metadata_types:
+        for metadata_type in MetadataConverter._metadata_types:
             if metadata_type == 'subject':
                 metadata_slice_info = {'index_name' : 'Animal name',
                                        'labels' : None,
@@ -304,11 +268,11 @@ class MetadataWriter(DataWriter):
                         'session_description' : None,
                         'session_id' : None,
                         'subject' : {'description' : 'Long Evans Rat',
-                                    'genotype' : None,
-                                    'sex' : None,
-                                    'species' : 'Rat',
-                                    'subject_id' : None,
-                                    'weight' : 'Unknown'},
+                                     'genotype' : None,
+                                     'sex' : None,
+                                     'species' : 'Rat',
+                                     'subject_id' : None,
+                                     'weight' : 'Unknown'},
                         'data_acq_device' : [],
                         'device' : {'name' : ['Trodes']},
                         'cameras' : [],
@@ -316,7 +280,7 @@ class MetadataWriter(DataWriter):
                         'associated_video_files' : [],
                         'tasks' : [],
                         'units' : {'analog' : '\'unspecified\'',
-                                'behavioral_events' : '\'unspecified\''},
+                                   'behavioral_events' : '\'unspecified\''},
                         'times_period_multiplier' : '1.5',
                         'raw_data_to_volts' : '0.000000195',
                         'default_header_file_path' : 'default_header.xml',
@@ -374,37 +338,15 @@ class MetadataWriter(DataWriter):
         else:
             data = default_data_dict[tuple_type]
         
-        named_tuple = MetadataWriter._named_tuple_dict[tuple_type](name, data)
+        named_tuple = MetadataConverter._named_tuple_dict[tuple_type](name, data)
         return named_tuple
 
-    @function_timer
-    def _write_metadata_file(self, date):
-
-        # Ensure .yml doesn't already exist if file overwriting is disabled
-        yml_files_path = self._file_info._file_name_helper._get_paths_by_file_type('yml')[0]
-        yml_file_name = self._file_info.search_expected_file_names(date + '_' + self._subject_name + '.yml').full_name.tolist()[0]
-        yml_file_names_list = self._file_info.search_file_names('.yml').full_name.tolist()
-        if not self._overwrite and yml_file_name in yml_file_names_list:
-            no_overwrite_handler_file(f"File '{yml_file_name}' already exists in'{yml_files_path}'")
-            return
-
-        # Convert metadata nested dictionary to text
-        txt = self._metadata_to_text(date)
-        # Write .yml file
-        with open(os.path.join(yml_files_path, yml_file_name), 'w') as writer:
-            writer.write(txt)
-        print_verbose(self._verbose,
-                      f"{os.path.join(yml_files_path, yml_file_name)}\n",
-                      color='blue')
-        print_verbose(self._verbose,
-                      f"{txt}\n")
-    
 
     def _metadata_to_text(self, date):
 
         txt = ''
         # Parse through metadata structure to create .yml file text
-        txt = MetadataWriter._parse_metadata_iterable(self._metadata[date], txt, -1)
+        txt = MetadataConverter._parse_metadata_iterable(self._metadata[date], txt, -1)
         # Trim preceding newline character
         txt = txt[1:]
         return txt
@@ -418,7 +360,7 @@ class MetadataWriter(DataWriter):
             for key, value in metadata.items():
                 txt += '\n'
                 txt += '  '*tab + key + ':'
-                txt = MetadataWriter._parse_metadata_iterable(value, txt, tab)
+                txt = MetadataConverter._parse_metadata_iterable(value, txt, tab)
             tab -= 1
         # Translate list to text
         elif type(metadata) is list or type(metadata) is set or type(metadata) is tuple:
@@ -426,7 +368,7 @@ class MetadataWriter(DataWriter):
             for item in metadata:
                 txt += '\n'
                 txt += '  '*tab + '-'
-                txt = MetadataWriter._parse_metadata_iterable(item, txt, tab)
+                txt = MetadataConverter._parse_metadata_iterable(item, txt, tab)
             tab -= 1
         # Translate named tuple to text
         elif hasattr(metadata, '_fields') and 'data' in metadata._fields:
@@ -434,10 +376,23 @@ class MetadataWriter(DataWriter):
             name_field.remove('data')
             name_field = name_field[0]
             name_string = name_field + ': ' + str(getattr(metadata, name_field))
-            txt = MetadataWriter._parse_metadata_iterable(name_string, txt, tab)
-            txt = MetadataWriter._parse_metadata_iterable(getattr(metadata, 'data'), txt, tab)
+            txt = MetadataConverter._parse_metadata_iterable(name_string, txt, tab)
+            txt = MetadataConverter._parse_metadata_iterable(getattr(metadata, 'data'), txt, tab)
         # Translate non-iterable data to text
         else:
             txt += ' ' + str(metadata)
         
         return txt
+
+    def _print(self, dates):
+
+        # Print metadata for the given dates
+        for date in dates:
+            verbose_printer.print_header(f"{self._subject_name} {date} .yml file metadata text",
+                                         f"{self._csv_file_names['subject']}",
+                                         f"{self._csv_file_names['session']}",
+                                         f"{self._csv_file_names['electrode']}",
+                                         f"{self._csv_file_names['dio']}")
+            metadata_txt = self._metadata_to_text(date)
+            verbose_printer.print_text(f"{metadata_txt}")
+            verbose_printer.print_newline()
