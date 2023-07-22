@@ -9,14 +9,14 @@ from rec_to_binaries.read_binaries import write_trodes_extracted_datafile
 import shutil
 import xml.etree.ElementTree as ET
 
-from .user_settings import code_path
-from .file_utils import FileInfo
-from .metadata_writer import MetadataWriter
+from config import (code_path, spyglass_nwb_path)
+from raw_conversion.file_info import FileInfo
+from raw_conversion.metadata_converter import MetadataConverter
 
 def write_trodes_config_file(subject_name, dates=None):
 
     # Get electrode metadata
-    metadata = MetadataWriter(subject_name, dates=dates)
+    metadata = MetadataConverter(subject_name, dates=dates)
     electrode_df = metadata._csv_metadata['electrode']
     tetrode_ids_list = electrode_df.index.tolist()
     bad_channels_list = electrode_df['Bad channels'].tolist()
@@ -94,7 +94,7 @@ def replace_position_tracking_files(subject_name, dates=None):
     # Replace old files with new files
     print(f"Replacing position tracking files for {subject_name}")
     for new_file in new_files_list:
-        new_file_name =os.path.split(new_file)[1]
+        new_file_name = os.path.split(new_file)[1]
         expected_names_df = file_info.search_expected_file_names(new_file_name)
         # Ensure new file name matches an expected file name
         assert not expected_names_df.empty, \
@@ -173,7 +173,16 @@ def replace_position_unix_timestamps(subject_name, dates=None):
             # Overwrite cameraHWSync file with updated position timestamps
             write_trodes_extracted_datafile(os.path.join(raw_path, hw_sync_file_name), pos_time)
 
-def rename_nwb_file(old_name, new_name):
+def rename_nwb_files(subject_name, dates=None):
 
-    # Rename .nwb file from default name
-    os.rename(old_name, new_name)
+    # Rename .nwb files and their Spyglass symlinks to their default names
+    file_info = FileInfo(subject_name, dates=dates)
+    nwb_path = file_info._file_name_helper._get_file_paths_by_type("nwb")[0]
+    for date in dates:
+        # Get old and new file names
+        old_file_name = file_info.search_file_names([date, '.nwb']).full_name.tolist()[0]
+        new_file_name = subject_name + date + ".nwb"
+        # Rename .nwb files in raw data directory
+        os.rename(os.path.join(nwb_path, old_file_name), os.path.join(nwb_path, new_file_name))
+        # Rename .nwb file symlinks in Spyglass directory
+        os.rename(os.path.join(spyglass_nwb_path, old_file_name), os.path.join(spyglass_nwb_path, new_file_name))
