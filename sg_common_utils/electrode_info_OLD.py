@@ -1,9 +1,12 @@
 import itertools
 import pandas as pd
-from sg_utils.sg_abstract_classes import TableTools
-from sg_utils.sg_helpers import conformed_fetch
-from utils.common_helpers import (print_verbose, function_timer,
-                                  _convert_dataframe_datatypes, _transform_dataframe_values)
+
+from sg_common_utils.sg_abstract_classes import TableTools
+from sg_common_utils.sg_helpers import conformed_fetch
+
+from utils import verbose_printer
+from utils.function_wrappers import function_timer
+#from utils.data_helpers import 
 
 from spyglass.common import (ElectrodeGroup, Electrode)
 
@@ -16,6 +19,7 @@ class ElectrodeInfo(TableTools):
 
         # Validate .nwb file names and query appropriate tables for electrode information
         super().__init__(nwb_file_names, verbose=verbose, timing=timing)
+        self._update()
 
     @property
     def electrode_groups(self):
@@ -104,6 +108,9 @@ class ElectrodeInfo(TableTools):
 
 
         #return intact_electrodes_dict[self._nwb_file_names[0]]
+    
+    def _update(self):
+        pass
 
     @function_timer
     def get_electrode_group_info(self):

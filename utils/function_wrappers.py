@@ -34,11 +34,11 @@ def function_timer(function_name, unit='seconds'):
             timing = False
         
         # Determine time units and scale factor
-        if unit is 'seconds':
+        if unit == 'seconds':
             scale = 1.0
-        elif unit is 'minutes':
+        elif unit == 'minutes':
             scale = 1/60
-        elif unit is 'hours':
+        elif unit == 'hours':
             scale = 1/60/60
         else:
             raise ValueError(f"Allowed units of timing are 'seconds', 'minutes', and 'hours'")

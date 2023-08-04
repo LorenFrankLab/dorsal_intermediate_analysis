@@ -8,28 +8,25 @@ from utils.data_helpers import parse_iterable_inputs
 class DataReader(ABC):
 
     from config import data_path, spyglass_nwb_path, spyglass_video_path
-    _data_path = data_path
-    _spyglass_nwb_path = spyglass_nwb_path
-    _spyglass_video_path = spyglass_video_path
+    data_path = data_path
+    spyglass_nwb_path = spyglass_nwb_path
+    spyglass_video_path = spyglass_video_path
 
     def __init__(self, subject_name, dates=None, verbose=False, timing=False):
 
-        # TODO: ADD CODE TO FIND INSERTED NWB FILE NAME ASSOCIATED WITH DATES; JUST LOOK UP NWB FILE NAMES AND USE REGEX
-        # TODO: ALSO ADD CAPABILITY TO SPECIFY EITHER NWB FILE NAMES OR DATES
-
-        # Store subject name, location of raw data for all recording sessions, session dates
+        # Store subject name, location of raw data for all recording sessions, and session dates
         self._validate_subject_name(subject_name)
         self._subject_name = subject_name
         # By default, the sessions path is data_path/subject_name/raw
         self._sessions_path = os.path.join(DataReader._data_path, self._subject_name, 'raw')
         # Ensure provided dates are valid, or use all dates if none provided
         if dates is None:
-            dates = self._get_session_dates()
+            dates = self.get_session_dates()
         self._validate_dates(dates)
-        self._dates = dates
-        self._n_dates = len(dates)
+        self._dates = parse_iterable_inputs(dates)
+        self._n_dates = len(self._dates)
         # Get number of epochs per date
-        self._n_epochs = self._get_number_of_epochs(dates)
+        self._n_epochs = self.get_number_of_epochs()
         
         # Enable verbose output and timing decorated functions
         self._verbose = verbose
@@ -46,6 +43,14 @@ class DataReader(ABC):
     @property
     def dates(self):
         return self._dates
+    
+    @property
+    def n_dates(self):
+        return self._n_dates
+    
+    @property
+    def n_epochs(self):
+        return self._n_epochs
 
     @property
     def verbose(self):
@@ -63,37 +68,28 @@ class DataReader(ABC):
     def timing(self, value):
         self._timing = value
 
+
+    def update(self):
+
+        # Check that subject name and dates are still valid
+        self._validate_subject_name(self._subject_name)
+        self._validate_dates(self._dates)
+        self._update()
+
     def print(self, dates=None):
         
         if 'dates' in signature(self._print).parameters.keys():
-            if 'nwb_file_names' in signature(self._print).parameters.keys():
-                raise NotImplementedError(f"User-defined '_print' method can't have both 'dates' and 'nwb_file_names' as keyword arguments")
-            else:
-                # Print for the given dates
-                if dates is None:
-                    dates = self._dates
-                self._validate_dates(dates)
-                self._print(dates)
-        elif 'nwb_file_names' in signature(self._print).parameters.keys():
-            # Print for the given nwb files
-            pass
+            # Print for the given dates
+            if dates is None:
+                dates = self._dates
+            self._validate_dates(dates)
+            self._print(dates)
         else:
-            # Print without specifying dates or nwb file names
+            # Print without specifying dates
             self._print()
 
-        # TODO: ADD SUPPORT FOR NWB FILES LATER
 
-
-    @abstractmethod
-    def _update(self):
-        pass
-
-    @abstractmethod
-    def _print(self, *args):
-        pass
-
-
-    def _get_subject_names(self):
+    def get_subject_names(self):
 
         # Get all folder names in the data path
         subjects_list = [folder.name for folder in os.scandir(self._data_path) if folder.is_dir()]
@@ -102,11 +98,11 @@ class DataReader(ABC):
     def _validate_subject_name(self, subject_name):
 
         # Compare the subject name to all valid subject names
-        valid_names = self._get_subject_names()
+        valid_names = self.get_subject_names()
         if subject_name not in valid_names:
             raise ValueError(f"No subject named '{subject_name}' found among the names {valid_names}")
     
-    def _get_session_dates(self):
+    def get_session_dates(self):
 
         # Get all folder names in subject's raw data directory
         dates = sorted([folder.name for folder in os.scandir(self._sessions_path) if folder.is_dir()])
@@ -119,16 +115,16 @@ class DataReader(ABC):
         if len(dates) != len(set(dates)):
             raise ValueError(f"Duplicate dates found in dates list {dates}")
         # Compare list of dates to all valid dates for the given subject
-        valid_dates = self._get_session_dates()
+        valid_dates = self.get_session_dates()
         dates_diff = set(dates) - set(valid_dates)
         if dates_diff:
             raise ValueError(f"No data found for subject '{self._subject_name}' on the dates {list(dates_diff)}")
     
-    def _get_number_of_epochs(self, dates):
+    def get_number_of_epochs(self):
 
         # Determine number of .rec files in the raw data directory
-        n_epochs = [None]*len(dates)
-        for ndx, date in enumerate(dates):
+        n_epochs = [None]*len(self._dates)
+        for ndx, date in enumerate(self._dates):
             # By default, the raw data path is data_path/subject_name/raw/date
             raw_path = os.path.join(self._sessions_path, date)
             raw_file_names = [file.name for file in os.scandir(raw_path) if file.is_file()]
@@ -136,9 +132,18 @@ class DataReader(ABC):
         return n_epochs
 
 
+    @abstractmethod
+    def _update(self):
+        pass
+
+    @abstractmethod
+    def _print(self, *args):
+        pass
+
+
 class DataWriter(DataReader):
 
-    def __init__(self, subject_name, dates=None, overwrite=False, universal_access=False, verbose=False, timing=False, ignore_exceptions=False):
+    def __init__(self, subject_name, dates=None, overwrite=False, universal_access=False, verbose=False, timing=False):
 
         super().__init__(subject_name, dates=dates, verbose=verbose, timing=timing)
         # Enable overwriting existing data, verbose output, and timing decorated functions

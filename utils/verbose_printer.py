@@ -65,7 +65,7 @@ def print_timer(*args):
     verbose_print(True, *args, color='magenta')
 
 def print_newline():
-    verbose_print(True, f"\n")
+    verbose_print(True, f"")
 
 def _get_ansi_escape_codes():
 

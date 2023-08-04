@@ -2,6 +2,7 @@ import pandas as pd
 import os
 
 from raw_conversion.file_info import FileInfo
+from raw_conversion.file_name_helper import FileNameHelper
 
 from utils import verbose_printer
 from utils.abstract_classes import DataReader
@@ -17,16 +18,18 @@ class PermissionsManager(DataReader):
         
         super().__init__(subject_name, dates=dates, verbose=False, timing=False)
         # Get top level data directory for the given subject
-        self._subject_data_path = os.path.join(self._data_path, self._subject_name)
+        self._subject_data_path = os.path.join(self.data_path, self.subject_name)
         # Instantiate file info to get information about data files
-        self._file_info = FileInfo(self._subject_name, dates=self._dates) 
-        self._update()
-    
+        self._file_info = FileInfo(self.subject_name, dates=self.dates) 
+        self._permissions = None
+
     @property
     def permissions(self):
-        self._update_file_permissions()
+        if self._permissions is None:
+            self._update()
         return self._permissions
-    
+
+
     def search_file_names(self, match_patterns):
         
         match_patterns = parse_iterable_inputs(match_patterns)
@@ -89,11 +92,11 @@ class PermissionsManager(DataReader):
     def _get_path_and_file_info(self):
 
         # Initialize a dataframe of file paths and full file names
-        path_names = self._file_info._file_paths.path_name.tolist()
-        path_types = self._file_info._file_paths.file_type.tolist()
-        full_names = self._file_info._file_names.full_name.tolist()
-        file_types = self._file_info._file_names.file_type.tolist()
-        file_names = self._file_info._file_names.file_name.tolist()
+        path_names = self._file_info.path_names.path_name.tolist()
+        path_types = self._file_info.path_names.file_type.tolist()
+        full_names = self._file_info.file_names.full_name.tolist()
+        file_types = self._file_info.file_names.file_type.tolist()
+        file_names = self._file_info.file_names.file_name.tolist()
         # Create indicator of whether a name is a file or not
         file_ind = [True]*len(full_names)
         file_ind.extend([False]*len(path_names))
@@ -109,8 +112,8 @@ class PermissionsManager(DataReader):
     def _print(self):
         
         # Print file paths and expected file names associated with subject
-        verbose_printer.print_header(f"{self._subject_name} data files and permissions")
-        for file_type in self._file_info._file_name_helper._file_types:
+        verbose_printer.print_header(f"{self.subject_name} data files and permissions")
+        for file_type in FileNameHelper.file_types:
             # Get full file names of the specified file type
             ind = self._permissions.file_type == file_type
             full_names = self._permissions[ind].full_name.tolist()
