@@ -40,29 +40,64 @@ class MetadataConverter(DataReader):
         super().__init__(subject_name, dates=dates, verbose=False, timing=False)
 
         # Get file information for raw data and metadata
-        self._file_info = FileInfo(self._subject_name, dates=self._dates)       
+        self._file_info = FileInfo(self.subject_name, dates=self.dates)       
         # Get index column name and labels and column names used to slice metadata
         self._metadata_slice_names = MetadataConverter._create_metadata_slice_names()
         # Get only metadata for the specified subject and dates
-        self._metadata_slice_names['subject']['labels'] = self._subject_name
-        self._metadata_slice_names['session']['labels'] = self._dates
-        # Read .csv metadata files into dataframes and convert them to nested dictionaries
-        self._update()
+        self._metadata_slice_names['subject']['labels'] = self.subject_name
+        self._metadata_slice_names['session']['labels'] = self.dates
+        self._metadata = None
 
     @property
     def metadata(self):
+        if self._metadata is None:
+            self._update()
         return self._metadata
-        
-    def _update(self):
-        
-        # Update file names, expected file names, and missing and matching file names
-        self._file_info._update()
-        # Read .csv metadata into dataframes
-        self._csv_file_names = self._get_csv_file_names()
-        self._csv_metadata = self._get_csv_metadata()
-        # Parse metadata to nested dictionaries that will be converted to .yml files
-        self._metadata = self._create_yml_metadata()
+    
 
+    def metadata_to_text(self, date):
+
+        self._update()
+        txt = ''
+        # Parse through metadata structure to create .yml file text
+        txt = MetadataConverter._parse_metadata_iterable(self._metadata[date], txt, -1)
+        # Trim preceding newline character
+        txt = txt[1:]
+        return txt
+
+    @staticmethod
+    def _parse_metadata_iterable(metadata, txt, tab):
+    
+        # Translate dictionary to text
+        if type(metadata) is dict:
+            tab += 1
+            for key, value in metadata.items():
+                txt += '\n'
+                txt += '  '*tab + key + ':'
+                txt = MetadataConverter._parse_metadata_iterable(value, txt, tab)
+            tab -= 1
+        # Translate list to text
+        elif type(metadata) is list or type(metadata) is set or type(metadata) is tuple:
+            tab += 1
+            for item in metadata:
+                txt += '\n'
+                txt += '  '*tab + '-'
+                txt = MetadataConverter._parse_metadata_iterable(item, txt, tab)
+            tab -= 1
+        # Translate named tuple to text
+        elif hasattr(metadata, '_fields') and 'data' in metadata._fields:
+            name_field = list(metadata._fields)
+            name_field.remove('data')
+            name_field = name_field[0]
+            name_string = name_field + ': ' + str(getattr(metadata, name_field))
+            txt = MetadataConverter._parse_metadata_iterable(name_string, txt, tab)
+            txt = MetadataConverter._parse_metadata_iterable(getattr(metadata, 'data'), txt, tab)
+        # Translate non-iterable data to text
+        else:
+            txt += ' ' + str(metadata)
+        
+        return txt
+        
 
     def _get_csv_file_names(self):
 
@@ -100,13 +135,23 @@ class MetadataConverter(DataReader):
             
             metadata_dict[metadata_type] = metadata_df
         return metadata_dict
+    
+    @classmethod
+    def _create_csv_file_suffixes(cls):
+
+        # Create dictionary of .csv file name suffixes corresponding to each metadata type
+        suffix_dict = {'subject' : '_subject_info.csv',
+                       'session' : '_session_info.csv',
+                       'electrode' : '_electrode_info.csv',
+                       'dio' : '_dio_events.csv'}
+        return suffix_dict
 
 
     def _create_yml_metadata(self):
 
         metadata = {}
         # Get metadata for each date
-        for date in self._dates:
+        for date in self.dates:
             metadata[date] = self._parse_metadata(date)
         return metadata
     
@@ -120,7 +165,7 @@ class MetadataConverter(DataReader):
         template_dict = MetadataConverter._get_yml_template()
         
         # Determine session ID, number of epochs in recording, and task type
-        session_id = self._get_session_dates().index(date)+1
+        session_id = self.get_session_dates().index(date)+1
         n_epochs = int(session_df['Number of epochs'])
         session_description = session_df['Session description']
         # Determine task type and description from session description
@@ -131,17 +176,17 @@ class MetadataConverter(DataReader):
             task_name = 'Alternation and rest'
             task_description = 'Alternation with rest periods in home box'
         else:
-            raise ValueError(f"Unable to determine task type from session description '{session_description}' on '{date}_{self._subject_name}'")
+            raise ValueError(f"Unable to determine task type from session description '{session_description}' on '{date}_{self.subject_name}'")
 
         # Generate epoch-specific metadata       
         task_dict = {}
         task_dict['epoch_numbers_list'] = list(range(1, n_epochs+1))
         # Get sorted statescript file names and full paths
         task_dict['statescript_file_names_list'] = sorted(self._file_info.search_matching_file_names('^' + date + '.*.stateScriptLog$').full_name.tolist())
-        task_dict['statescript_names_list'] = ['statescript_' + FileNameHelper._get_epoch_name_info(ndx+1)[1] for ndx in range(self._get_number_of_epochs(dates=[date])[0])]
+        task_dict['statescript_names_list'] = ['statescript_' + FileNameHelper.get_epoch_name_info(ndx+1)['epoch_name'][0] for ndx in range(self._n_epochs[self.dates.index(date)])]
         # Get video file and camera names
         task_dict['video_file_names_list'] = sorted(self._file_info.search_matching_file_names('^' + date + '.*.h264$').file_name.tolist())
-        task_dict['camera_names_list'] = [FileNameHelper._get_epoch_name_info(epoch)[2] for epoch in range(1, n_epochs+1)]
+        task_dict['camera_names_list'] = [FileNameHelper.get_epoch_name_info(epoch)['camera_name'][0] for epoch in range(1, n_epochs+1)]
 
         # Fill .yml file template with subject and session metadata
         template_dict['experimenter_name'] = session_df['Experimenters'].split(', ')
@@ -150,7 +195,7 @@ class MetadataConverter(DataReader):
         template_dict['session_id'] = session_id
         template_dict['subject']['genotype'] = subject_df['Genotype']
         template_dict['subject']['sex'] = subject_df['Sex']
-        template_dict['subject']['subject_id'] = self._subject_name
+        template_dict['subject']['subject_id'] = self.subject_name
 
         # Fill .yml file template with acquisition metadata
         device_tuple = MetadataConverter._create_metadata_named_tuple('trodes', 'device')
@@ -247,16 +292,6 @@ class MetadataConverter(DataReader):
             _metadata_column_names[metadata_type] = metadata_slice_info
         return _metadata_column_names
 
-    @classmethod
-    def _create_csv_file_suffixes(cls):
-
-        # Create dictionary of .csv file name suffixes corresponding to each metadata type
-        suffix_dict = {'subject' : '_subject_info.csv',
-                       'session' : '_session_info.csv',
-                       'electrode' : '_electrode_info.csv',
-                       'dio' : '_dio_events.csv'}
-        return suffix_dict
-
     @staticmethod
     def _get_yml_template():
 
@@ -342,57 +377,26 @@ class MetadataConverter(DataReader):
         return named_tuple
 
 
-    def _metadata_to_text(self, date):
-
-        txt = ''
-        # Parse through metadata structure to create .yml file text
-        txt = MetadataConverter._parse_metadata_iterable(self._metadata[date], txt, -1)
-        # Trim preceding newline character
-        txt = txt[1:]
-        return txt
-
-    @staticmethod
-    def _parse_metadata_iterable(metadata, txt, tab):
-    
-        # Translate dictionary to text
-        if type(metadata) is dict:
-            tab += 1
-            for key, value in metadata.items():
-                txt += '\n'
-                txt += '  '*tab + key + ':'
-                txt = MetadataConverter._parse_metadata_iterable(value, txt, tab)
-            tab -= 1
-        # Translate list to text
-        elif type(metadata) is list or type(metadata) is set or type(metadata) is tuple:
-            tab += 1
-            for item in metadata:
-                txt += '\n'
-                txt += '  '*tab + '-'
-                txt = MetadataConverter._parse_metadata_iterable(item, txt, tab)
-            tab -= 1
-        # Translate named tuple to text
-        elif hasattr(metadata, '_fields') and 'data' in metadata._fields:
-            name_field = list(metadata._fields)
-            name_field.remove('data')
-            name_field = name_field[0]
-            name_string = name_field + ': ' + str(getattr(metadata, name_field))
-            txt = MetadataConverter._parse_metadata_iterable(name_string, txt, tab)
-            txt = MetadataConverter._parse_metadata_iterable(getattr(metadata, 'data'), txt, tab)
-        # Translate non-iterable data to text
-        else:
-            txt += ' ' + str(metadata)
+    def _update(self):
         
-        return txt
+        # Update file names, expected file names, and missing and matching file names
+        self._file_info.update()
+        # Read .csv metadata into dataframes
+        self._csv_file_names = self._get_csv_file_names()
+        self._csv_metadata = self._get_csv_metadata()
+        # Parse metadata to nested dictionaries that will be converted to .yml files
+        self._metadata = self._create_yml_metadata()
+
 
     def _print(self, dates):
 
         # Print metadata for the given dates
         for date in dates:
-            verbose_printer.print_header(f"{self._subject_name} {date} .yml file metadata text",
+            verbose_printer.print_header(f"{self.subject_name} {date} .yml file metadata text",
                                          f"{self._csv_file_names['subject']}",
                                          f"{self._csv_file_names['session']}",
                                          f"{self._csv_file_names['electrode']}",
                                          f"{self._csv_file_names['dio']}")
-            metadata_txt = self._metadata_to_text(date)
+            metadata_txt = self.metadata_to_text(date)
             verbose_printer.print_text(f"{metadata_txt}")
             verbose_printer.print_newline()

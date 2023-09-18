@@ -8,8 +8,8 @@ from spyglass.common import Nwbfile
 from spyglass.data_import import insert_sessions
 
 from utils.common_helpers import (print_verbose, function_timer, no_overwrite_handler_table)
-from sg_utils.sg_helpers import (sql_or_query, _parse_iterable_inputs)
-from sg_utils.sg_preprocessing_utils import PreprocessingInfo
+from sg_common_utils.sg_helpers import (sql_or_query, _parse_iterable_inputs)
+from sg_common_utils.preprocessing_info import PreprocessingInfo
 
 class InsertionProcessor():
 
