@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 from inspect import signature
 
-from sg_common_utils.sg_helpers import (conformed_fetch,
-                                        fetch,
+from sg_common_utils.sg_helpers import (fetch,
                                         fetch_as_dataframe,
+                                        multi_table_fetch,
                                         parse_table_attribute_values,
                                         query_table,
                                         query_to_dataframe,
@@ -223,7 +223,7 @@ class TableTools(TableReader):
             fetches[nwb_file_name] = fetch_data
         return fetches
     
-    def conform_by_nwb_file(self, queries_dict, fetch_attributes_dict, shaper_attribute_dict, flatten=True):
+    def multi_table_fetch_by_nwb_file(self, queries_dict, conformer_attributes_list, shaper_attribute_dict):
 
         # Get conformed data for each .nwb file
         fetches = {nwb_file_name : None for nwb_file_name in self._nwb_file_names}
@@ -231,8 +231,7 @@ class TableTools(TableReader):
             # Restrict each table to entries corresponding to just the current .nwb file
             nwb_queries = {key : query_table(table, 'nwb_file_name', nwb_file_name) for key, table in queries_dict.items()}
             # Fetch conformed data
-            data_df = conformed_fetch(nwb_queries, fetch_attributes_dict, shaper_attribute_dict, flatten=flatten)
-            # Reorder multiindex so that table names are above .nwb file names
+            data_df = multi_table_fetch(nwb_queries, shaper_attribute_dict, conformer_attributes_list)
             fetches[nwb_file_name] = data_df
         return fetches
 
