@@ -5,6 +5,7 @@ from sg_common_utils.sg_helpers import (fetch,
                                         fetch_as_dataframe,
                                         multi_table_fetch,
                                         parse_table_attribute_values,
+                                        query_by_key,
                                         query_table,
                                         query_to_dataframe,
                                         sql_combinatoric_query,)
@@ -19,6 +20,9 @@ class TableReader(ABC):
     from config import spyglass_nwb_path, spyglass_video_path
     spyglass_nwb_path = spyglass_nwb_path
     spyglass_video_path = spyglass_video_path
+
+    # Initialize the tables that will be queried
+    _tables = None
 
     def __init__(self, subject_names=None, nwb_file_names=None, verbose=False, timing=False):
 
@@ -39,6 +43,8 @@ class TableReader(ABC):
         self._epochs = self.get_epoch_ids()
         # Get task names for each epoch of each session
         self._tasks = self.get_tasks()
+        # Query appropriate tables for the given .nwb file names
+        self._queries = self.get_queries()
         
         # Enable verbose output and timing decorated functions
         self._verbose = verbose
@@ -75,7 +81,22 @@ class TableReader(ABC):
     @timing.setter
     def timing(self, value):
         self._timing = value
+    
+    @property
+    def tables(self):
+        return self._tables
+        
+    @property
+    def queries(self):
+        return self._queries
 
+    def update(self):
+
+        # Check that subject name and dates are still valid
+        self._validate_subject_names(self._subject_names)
+        self._validate_nwb_file_names(self._nwb_file_names)
+        self._update()
+    
     def print(self, nwb_file_names=None):
         
         if 'nwb_file_names' in signature(self._print).parameters.keys():
@@ -87,7 +108,6 @@ class TableReader(ABC):
         else:
             # Print without specifying .nwb file names
             self._print()
-
 
     def get_subject_names(self):
 
@@ -127,10 +147,10 @@ class TableReader(ABC):
         if len(nwb_file_names) != len(set(nwb_file_names)):
             raise ValueError(f"Duplicate .nwb file names found in file names list {nwb_file_names}")
         # Compare list of file names to all valid file names for the given subject
-        valide_file_names = self.get_nwb_file_names()
-        file_names_diff = set(nwb_file_names) - set(valide_file_names)
+        valid_file_names = self.get_nwb_file_names()
+        file_names_diff = set(nwb_file_names) - set(valid_file_names)
         if file_names_diff:
-            raise ValueError(f"The following .nwb files not found for the subject '{self._subject_name}:' {list(file_names_diff)}")
+            raise ValueError(f"The following .nwb files not found for the subject '{self.subject_names}:' {list(file_names_diff)}")
 
     def get_epoch_ids(self):
 
@@ -148,7 +168,14 @@ class TableReader(ABC):
             # Get task names for the given .nwb file
             task_names[ndx] = (TaskEpoch & {'nwb_file_name' : nwb_file_name}).fetch('task_name', order_by='epoch')
         return task_names
+    
+    def get_queries(self):
 
+        # Query each table for entries matching the .nwb file names
+        queries = {key: None for key in self._tables.keys()}
+        for key, table in self._tables.items():
+            queries[key] = query_table(table, 'nwb_file_name', self.nwb_file_names)
+        return queries
 
     @abstractmethod
     def _update(self):
@@ -159,38 +186,38 @@ class TableReader(ABC):
         pass
 
 
+class TableWriter(TableReader):
+
+    def __init__(self, subject_names=None, nwb_file_names=None, overwrite=False, verbose=False, timing=False):
+
+        # Enable verbose output and timing
+        super().__init__(subject_names=subject_names, nwb_file_names=nwb_file_names, verbose=verbose, timing=timing)
+
+        # Enable overwriting existing data
+        self._overwrite = overwrite
+    
+    @property
+    def overwrite(self):
+        return self._overwrite
+    
+    @overwrite.setter
+    def overwrite(self, value):
+        self._overwrite = value
+
+    def validate_table_entry(self, query_name, key):
+
+        # Check if key corresponds to an entry in the query table
+        query = query_by_key(self.queries[query_name], key=key)
+        entry_exists_bool = (query == True)
+        return entry_exists_bool
+
+
 class TableTools(TableReader):
 
-    # Initialize the tables that will be queried
-    _tables = None
-
-    def __init__(self, subject_names=None, nwb_file_names=None, verbose=False, timing=True):
+    def __init__(self, subject_names=None, nwb_file_names=None, verbose=False, timing=False):
         
         # Enable verbose output and timing
         super().__init__(subject_names=subject_names, nwb_file_names=nwb_file_names, verbose=verbose, timing=timing)
-        # Query appropriate tables for the given .nwb file names
-        self._queries = self._get_queries()
-    
-    @property
-    def nwb_file_names(self):
-        return self._nwb_file_names
-    
-    @property
-    def tables(self):
-        return self._tables
-    
-    @property
-    def queries(self):
-        return self._queries
-    
-
-    def _get_queries(self):
-
-        # Query each table for entries matching the .nwb file names
-        queries = {key: None for key in self._tables.keys()}
-        for key, table in self._tables.items():
-            queries[key] = query_table(table, 'nwb_file_name', self.nwb_file_names)
-        return queries
 
     def query_by_nwb_file(self, table, attribute_names, attribute_values, dataframe=False):
 

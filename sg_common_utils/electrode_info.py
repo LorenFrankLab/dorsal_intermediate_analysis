@@ -1,13 +1,9 @@
-import itertools
 import pandas as pd
 
 from sg_common_utils.sg_abstract_classes import TableTools
-from sg_common_utils.sg_helpers import (fetch_as_dataframe,
-                                        multi_table_fetch)
+from sg_common_utils.sg_helpers import fetch_as_dataframe
 
-from utils import verbose_printer
-from utils.data_helpers import convert_dataframe_datatypes, transform_dataframe_values, unique_dataframe
-from utils.function_wrappers import function_timer
+from utils.data_helpers import transform_dataframe_values, unique_dataframe
 
 from spyglass.common import (ElectrodeGroup, Electrode)
 
@@ -58,9 +54,9 @@ class ElectrodeInfo(TableTools):
         return self._electrode_indicator
 
     @property
-    def lfp_electrode(self):
+    def lfp_electrodes(self):
         if self._lfp_electrode is None:
-            self._update_lfp_electrode()
+            self._update_lfp_electrodes()
         return self._lfp_electrode
     
     def _update_electrodes(self):
@@ -122,10 +118,10 @@ class ElectrodeInfo(TableTools):
         electrode_ind_df.rename(columns={'bad_channel' : 'intact_indicator'}, inplace=True)
         return electrode_ind_df
     
-    def _update_lfp_electrode(self):
+    def _update_lfp_electrodes(self):
         
         # Get first intact electrode of each electrode group
-        attribute_names = ['nwb_file_name', 'electrode_group_name', 'electrode_id']
+        attribute_names = ['nwb_file_name', 'electrode_group_name', 'electrode_id', 'original_reference_electrode']
         query = self._queries['Electrode'] & {'bad_channel' : 'False'}
         lfp_electrodes = self.fetch_by_nwb_file(query,
                                                 attribute_names,
@@ -137,12 +133,13 @@ class ElectrodeInfo(TableTools):
 
 
     def _update(self):
+        
         self._update_electrodes()
         self._update_reference_electrodes()
         self._update_intact_electrodes()
         self._update_dead_electrodes()
         self._update_electrode_indicator()
-        self._update_lfp_electrode()
+        self._update_lfp_electrodes()
 
     def _print(self):
         pass

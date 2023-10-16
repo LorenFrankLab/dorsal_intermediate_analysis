@@ -6,18 +6,21 @@ from sg_common_utils.sg_helpers import (get_primary_key,
 from utils import verbose_printer
 from utils.function_wrappers import function_timer
 
-from spyglass.common import (Nwbfile,
-                             LFPSelection, LFP, LFPBandSelection, LFPBand)
+from spyglass.common import Nwbfile
+from spyglass.lfp import LFPElectrodeGroup
+from spyglass.lfp.v1 import (LFPSelection, LFPV1)
+from spyglass.lfp.analysis.v1.lfp_band import (LFPBandSelection, LFPBandV1)
 from spyglass.spikesorting import (SpikeSorterParameters)
 
 class PreprocessingInfo(TableReader):
 
     # Tuple of valid preprocessing analyses
     _preprocessing_tables = {'insertion' : {'Nwbfile' : Nwbfile},
-                             'lfp' : {'LFPSelection' : LFPSelection,
-                                      'LFP' : LFP,
+                             'lfp' : {'LFPElectrodeGroup' : LFPElectrodeGroup,
+                                      'LFPSelection' : LFPSelection,
+                                      'LFP' : LFPV1,
                                       'LFPBandSelection' : LFPBandSelection,
-                                      'LFPBand' : LFPBand},
+                                      'LFPBand' : LFPBandV1},
                              'ripples' : (),
                              'spikesorting' : (),
                              'curation' : (),
@@ -99,6 +102,9 @@ class PreprocessingInfo(TableReader):
             # Define attributes to validate in each table
             if key == 'Nwbfile':
                 attribute_names = ['nwb_file_name']
+                attribute_values = [self.nwb_file_names]
+            elif key == 'LFPElectrodeGroup':
+                attribute_names = ['nwb_file_name', 'group_name', 'electrode_list']
                 attribute_values = [self.nwb_file_names]
             elif key == 'LFPSelection':
                 attribute_names = ['nwb_file_name']

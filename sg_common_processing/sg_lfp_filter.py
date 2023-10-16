@@ -1,46 +1,73 @@
-from spyglass.common import (ElectrodeGroup, Electrode,
-                             LFPSelection, LFP, LFPBandSelection, LFPBand)
+from sg_common_utils.electrode_info import ElectrodeInfo
+from sg_common_utils.preprocessing_info import PreprocessingInfo
+from sg_common_utils.sg_abstract_classes import TableWriter
+from sg_common_utils.sg_helpers import fetch_as_dataframe
 
-def get_lfp_electrodes(nwb_file_name, electrode_groups_list=None, verbose=False):
+from utils.data_helpers import transform_dataframe_values, unique_dataframe
+from utils.file_helpers import no_overwrite_handler_table
+from utils.function_wrappers import function_timer
 
-    # Filter all electrode groups if no groups are specified
-    if electrode_groups_list is None:
-        electrode_groups_list = (ElectrodeGroup() & {'nwb_file_name' : nwb_file_name}).fetch('electrode_group_name').tolist()
-    n_electrode_groups = len(electrode_groups_list)
-    # List of which electrode to use for LFP filtering within each electrode group
-    lfp_electrodes_list = [None]*n_electrode_groups
-    # List of reference electrodes for the electrodes that will be LFP filtered
-    ref_electrodes_list = [None]*n_electrode_groups
+from spyglass.lfp import LFPElectrodeGroup
+from spyglass.lfp.v1 import (LFPSelection, LFPV1)
+from spyglass.lfp.analysis.v1.lfp_band import (LFPBandSelection, LFPBandV1)
 
-    intact_ind = [True]*n_electrode_groups
-    # For each electrode group, use the first non-dead electrode for LFP filtering
-    for ndx, group_name in enumerate(electrode_groups_list):
-        # List of all intact electrodes for the given electrode group
-        intact_electrodes_list = (Electrode() & {'nwb_file_name' : nwb_file_name,
-                                                 'electrode_group_name' : group_name,
-                                                 'bad_channel' : 'False'}).fetch('electrode_id')
-        # Skip if electrode group has only dead channels
-        if len(intact_electrodes_list) == 0:
-            intact_ind[ndx] = False
-            continue
-        
-        # Use the first non-dead electrode for LFP filtering
-        lfp_electrode = intact_electrodes_list[0]
-        lfp_electrodes_list[ndx] = lfp_electrode
-        # Get the reference electrode for the selected LFP electrode
-        ref_electrodes_list[ndx] = (Electrode() & {'nwb_file_name' : nwb_file_name,
-                                                   'electrode_id' : lfp_electrode}).fetch1('original_reference_electrode')
-    if verbose:
-        for group, chn, ref, ind in zip(electrode_groups_list, lfp_electrodes_list, ref_electrodes_list, intact_ind):
-            if ind:
-                print(f"Electrode group '{group}', electrode '{chn}', reference electrode '{ref}'")
-            else:
-                print(f"No intact electrodes on electrode group '{group}'")
-    # Remove any dead electrode groups
-    for elec_list in (electrode_groups_list, lfp_electrodes_list, ref_electrodes_list):
-        elec_list = [item for item, ind in zip(elec_list, intact_ind) if ind]
+class LFPFilter(TableWriter):
 
-    return electrode_groups_list, lfp_electrodes_list, ref_electrodes_list
+    _tables = {'LFPElectrodeGroup' : LFPElectrodeGroup,
+               'LFPSelection' : LFPSelection,
+               'LFP' : LFPV1,
+               'LFPBandSelection' : LFPBandSelection,
+               'LFPBand' : LFPBandV1}
+
+    def __init__(self, subject_names=None, nwb_file_names=None, verbose=False, timing=False):
+
+        # Validate .nwb file names and query appropriate tables for electrode information
+        super().__init__(subject_names=subject_names, nwb_file_names=nwb_file_names, verbose=verbose, timing=timing)
+        # Get preprocessing analyses info
+        self._preprocessing_info = PreprocessingInfo(subject_names=self.subject_names)
+        # Get electrodes info
+        self._electrode_info = ElectrodeInfo(subject_names=self.subject_names)
+
+    @function_timer
+    def lfp_filter(self):
+
+        self._update()
+        # Filter electrophysiology data in each .nwb file
+        for nwb_file_name in self.nwb_file_names:
+            self._create_lfp_filtered_data(nwb_file_name)
+
+    @function_timer
+    def _create_lfp_filtered_data(self, nwb_file_name):
+
+        # Create LFP filter electrode groups if they don't exist already
+        self._create_lfp_electrode_groups(nwb_file_name)
+
+
+
+    def _create_lfp_electrode_groups(self, nwb_file_name):
+
+        # Get LFP electrode info for the given .nwb file
+        lfp_electrodes_df = self._electrode_info.lfp_electrode
+        lfp_electrodes_df = lfp_electrodes_df[lfp_electrodes_df['nwb_file_name'] == nwb_file_name]
+        # Create a key for each LFP electrode group
+        for df_row in lfp_electrodes_df.iterrows():
+            key = {'nwb_file_name' : nwb_file_name,
+                   'electrode_group_name' : df_row['electrode_group_name'],
+                   'electrode_id' : df_row['electrode_group_name']}
+            # Check if LFP electrode group entry already exists
+            entry_exists_bool = self.validate_table_entry('LFPElectrodeGroup', key)
+            if not self._overwrite and entry_exists_bool:
+                no_overwrite_handler_table(f"LFP electrode group already exists")
+        else:
+            # Create LFP electrode goup
+            self.tables['LFPElectrodeGroup'].create_lfp_electrode_group(nwb_file_name=key['nwb_file_name'],
+                                                                        group_name=key['electrode_group_name'],
+                                                                        electrode_list=[key['electrode_id']])
+
+
+
+
+
 
 def lfp_filter(nwb_file_name, lfp_electrodes_list):
 

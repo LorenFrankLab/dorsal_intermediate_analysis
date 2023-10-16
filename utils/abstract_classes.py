@@ -18,7 +18,7 @@ class DataReader(ABC):
         self._validate_subject_name(subject_name)
         self._subject_name = subject_name
         # By default, the sessions path is data_path/subject_name/raw
-        self._sessions_path = os.path.join(DataReader._data_path, self._subject_name, 'raw')
+        self._sessions_path = os.path.join(DataReader.data_path, self._subject_name, 'raw')
         # Ensure provided dates are valid, or use all dates if none provided
         if dates is None:
             dates = self.get_session_dates()
@@ -92,7 +92,7 @@ class DataReader(ABC):
     def get_subject_names(self):
 
         # Get all folder names in the data path
-        subjects_list = [folder.name for folder in os.scandir(self._data_path) if folder.is_dir()]
+        subjects_list = [folder.name for folder in os.scandir(self.data_path) if folder.is_dir()]
         return subjects_list
     
     def _validate_subject_name(self, subject_name):
@@ -146,7 +146,7 @@ class DataWriter(DataReader):
     def __init__(self, subject_name, dates=None, overwrite=False, universal_access=False, verbose=False, timing=False):
 
         super().__init__(subject_name, dates=dates, verbose=verbose, timing=timing)
-        # Enable overwriting existing data, verbose output, and timing decorated functions
+        # Enable overwriting existing data and letting anyone access the created data
         self._overwrite = overwrite
         self._universal_access = universal_access
     
