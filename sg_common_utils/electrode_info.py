@@ -1,11 +1,11 @@
 import pandas as pd
 
-from sg_common_utils.sg_abstract_classes import TableTools
-from sg_common_utils.sg_helpers import fetch_as_dataframe
+from .sg_abstract_classes import TableTools
+from .sg_helpers import fetch_as_dataframe
+from .sg_tables import (Electrode, ElectrodeGroup)
 
 from utils.data_helpers import transform_dataframe_values, unique_dataframe
 
-from spyglass.common import (ElectrodeGroup, Electrode)
 
 class ElectrodeInfo(TableTools):
 
@@ -63,7 +63,7 @@ class ElectrodeInfo(TableTools):
 
         # Get sorted electrode IDs for each .nwb file
         attribute_names = ['nwb_file_name', 'electrode_id', 'electrode_group_name']
-        electrodes = fetch_as_dataframe(self._queries['Electrode'],
+        electrodes = fetch_as_dataframe(self.queries['Electrode'],
                                         attribute_names,
                                         sort_attribute_names=attribute_names)
         self._electrodes = electrodes
@@ -72,7 +72,7 @@ class ElectrodeInfo(TableTools):
         
         # Get reference electrode IDs for each .nwb file
         attribute_names = ['nwb_file_name', 'electrode_id', 'original_reference_electrode']
-        ref_electrodes = fetch_as_dataframe(self._queries['Electrode'],
+        ref_electrodes = fetch_as_dataframe(self.queries['Electrode'],
                                             attribute_names,
                                             sort_attribute_names=['nwb_file_name', 'electrode_id'])
         self._reference_electrodes = ref_electrodes
@@ -81,7 +81,7 @@ class ElectrodeInfo(TableTools):
         
         # Get electrode IDs of intact electrodes for each .nwb file
         attribute_names = ['nwb_file_name', 'electrode_id']
-        query = self._queries['Electrode'] & {'bad_channel' : 'False'}
+        query = self.queries['Electrode'] & {'bad_channel' : 'False'}
         intact_electrodes = fetch_as_dataframe(query,
                                                attribute_names,
                                                sort_attribute_names=attribute_names)
@@ -91,7 +91,7 @@ class ElectrodeInfo(TableTools):
         
         # Get electrode IDs of dead electrodes for each .nwb file
         attribute_names = ['nwb_file_name', 'electrode_id']
-        query = self._queries['Electrode'] & {'bad_channel' : 'True'}
+        query = self.queries['Electrode'] & {'bad_channel' : 'True'}
         dead_electrodes = fetch_as_dataframe(query,
                                              attribute_names,
                                              sort_attribute_names=attribute_names)
@@ -102,7 +102,7 @@ class ElectrodeInfo(TableTools):
         # Get indicator of intact electrodes for each .nwb file
         attribute_names = ['nwb_file_name', 'electrode_id', 'bad_channel']
 
-        electrode_ind = fetch_as_dataframe(self._queries['Electrode'],
+        electrode_ind = fetch_as_dataframe(self.queries['Electrode'],
                                            attribute_names,
                                            sort_attribute_names=['nwb_file_name', 'electrode_id'])
         # Change indicator to specify intact channels instead of dead channels
@@ -122,7 +122,7 @@ class ElectrodeInfo(TableTools):
         
         # Get first intact electrode of each electrode group
         attribute_names = ['nwb_file_name', 'electrode_group_name', 'electrode_id', 'original_reference_electrode']
-        query = self._queries['Electrode'] & {'bad_channel' : 'False'}
+        query = self.queries['Electrode'] & {'bad_channel' : 'False'}
         lfp_electrodes = self.fetch_by_nwb_file(query,
                                                 attribute_names,
                                                 sort_attribute_names=['nwb_file_name', 'electrode_id'])

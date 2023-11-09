@@ -124,7 +124,7 @@ def query_table(table, attribute_names, attribute_values=None):
     # Serially query the table using the attribute names and values for those attributes
     query = table
     for name, values in zip(attribute_names, attribute_values):
-        return table & sql_or_query(name, values)
+        query = query & sql_or_query(name, values)
     return query
 
 def query_by_key(table, key=None, **kwargs):
@@ -136,7 +136,7 @@ def query_by_key(table, key=None, **kwargs):
     query = table
     if key:
         attribute_names, attribute_values = parse_restriction_key(key)
-        query = query & sql_multi_query(attribute_names, attribute_values)
+        query = query_table(query, attribute_names, attribute_values)
     return query
 
 def query_to_dataframe(table):

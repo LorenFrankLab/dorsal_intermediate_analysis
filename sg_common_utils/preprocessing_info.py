@@ -1,15 +1,16 @@
-from sg_common_utils.sg_abstract_classes import TableReader, TableTools
-from sg_common_utils.sg_helpers import (get_primary_key,
-                                        sql_or_query,
-                                        get_table_name)
+from .sg_abstract_classes import TableReader, TableTools
+from .sg_helpers import (get_primary_key,
+                         sql_or_query,
+                         get_table_name)
+from .sg_tables import (Nwbfile,
+                        LFPBandSelection, LFPBand, LFPElectrodeGroup, LFPSelection, LFP)
 
 from utils import verbose_printer
+from utils.data_containers import NestedDict
 from utils.function_wrappers import function_timer
 
-from spyglass.common import Nwbfile
-from spyglass.lfp import LFPElectrodeGroup
-from spyglass.lfp.v1 import (LFPSelection, LFPV1)
-from spyglass.lfp.analysis.v1.lfp_band import (LFPBandSelection, LFPBandV1)
+
+
 from spyglass.spikesorting import (SpikeSorterParameters)
 
 class PreprocessingInfo(TableReader):
@@ -18,14 +19,16 @@ class PreprocessingInfo(TableReader):
     _preprocessing_tables = {'insertion' : {'Nwbfile' : Nwbfile},
                              'lfp' : {'LFPElectrodeGroup' : LFPElectrodeGroup,
                                       'LFPSelection' : LFPSelection,
-                                      'LFP' : LFPV1,
+                                      'LFP' : LFP,
                                       'LFPBandSelection' : LFPBandSelection,
-                                      'LFPBand' : LFPBandV1},
-                             'ripples' : (),
-                             'spikesorting' : (),
-                             'curation' : (),
-                             'decoding' : ()}
+                                      'LFPBand' : LFPBand}}
+                             #'ripples' : (),
+                             #'spikesorting' : (),
+                             #'curation' : (),
+                             #'decoding' : ()}
     _preprocessing_types = _preprocessing_tables.keys()
+    _table_tuples = NestedDict(_preprocessing_tables).deep_items()
+    _tables = dict((key_list[-1], table) for key_list, table in _table_tuples)
     
     def __init__(self, subject_names=None, nwb_file_names=None, verbose=False, timing=False):
     

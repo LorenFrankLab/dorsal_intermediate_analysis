@@ -1,19 +1,19 @@
 from abc import ABC, abstractmethod
 from inspect import signature
 
-from sg_common_utils.sg_helpers import (fetch,
-                                        fetch_as_dataframe,
-                                        multi_table_fetch,
-                                        parse_table_attribute_values,
-                                        query_by_key,
-                                        query_table,
-                                        query_to_dataframe,
-                                        sql_combinatoric_query,)
+from .sg_helpers import (fetch,
+                         fetch_as_dataframe,
+                         multi_table_fetch,
+                         parse_table_attribute_values,
+                         query_by_key,
+                         query_table,
+                         query_to_dataframe,
+                         sql_combinatoric_query)
+from .sg_tables import (IntervalList, Session, Subject, TaskEpoch)
 
 from utils.data_containers import NestedDict
 from utils.data_helpers import parse_iterable_inputs
 
-from spyglass.common import (Session, Subject, TaskEpoch)
 
 class TableReader(ABC):
         
@@ -174,7 +174,10 @@ class TableReader(ABC):
         # Query each table for entries matching the .nwb file names
         queries = {key: None for key in self._tables.keys()}
         for key, table in self._tables.items():
-            queries[key] = query_table(table, 'nwb_file_name', self.nwb_file_names)
+            if self.nwb_file_names:
+                queries[key] = query_table(table, 'nwb_file_name', self.nwb_file_names)
+            else:
+                queries[key] = None
         return queries
 
     @abstractmethod
@@ -188,13 +191,25 @@ class TableReader(ABC):
 
 class TableWriter(TableReader):
 
-    def __init__(self, subject_names=None, nwb_file_names=None, overwrite=False, verbose=False, timing=False):
+    def __init__(self, subject_names=None, nwb_file_names=None, interval_list_names=None, overwrite=False, verbose=False, timing=False):
 
         # Enable verbose output and timing
         super().__init__(subject_names=subject_names, nwb_file_names=nwb_file_names, verbose=verbose, timing=timing)
 
+        # Ensure provided interval list names are valid, or use all use interval lists if none provided
+        if interval_list_names is None:
+            self._interval_list_names = self._create_interval_list_names_dict(interval_list_names)
+        self._validate_interval_list_names(interval_list_names)
+        self._interval_list_names = self._create_interval_list_names_dict(interval_list_names)
+        for nwb_file_name in self.nwb_file_names:
+            self._interval_list_names[nwb_file_name] = parse_iterable_inputs(self._interval_list_names[nwb_file_name])
+        
         # Enable overwriting existing data
         self._overwrite = overwrite
+    
+    @property
+    def interval_list_names(self):
+        return self._interval_list_names
     
     @property
     def overwrite(self):
@@ -210,6 +225,46 @@ class TableWriter(TableReader):
         query = query_by_key(self.queries[query_name], key=key)
         entry_exists_bool = (query == True)
         return entry_exists_bool
+    
+    def get_interval_list_names(self, nwb_file_name):
+
+        # Get all interval list names for an inserted .nwb files
+        query = query_table(IntervalList, 'nwb_file_name', nwb_file_name)
+        interval_list_names = fetch(query, 'interval_list_name')
+        return interval_list_names
+    
+    def _validate_interval_list_names(self, interval_list_names):
+
+        interval_list_names = self._create_interval_list_names_dict(interval_list_names)
+        # Ensure that keys of interval list names dictionary are valid .nwb file names
+        self._validate_nwb_file_names(interval_list_names.keys())
+        for nwb_file_name in self.nwb_file_names:
+            # Ensure that no duplicate interval list names are present
+            interval_names = parse_iterable_inputs(interval_list_names[nwb_file_name])
+            if len(interval_names) != len(set(interval_names)):
+                raise ValueError(f"Duplicate interval list names found for .nwb file {nwb_file_name}")
+            
+            # Compare list of file names to all valid file names for the given subject
+            valid_interval_names = self.get_interval_list_names(nwb_file_name)
+            interval_names_diff = set(interval_names) - set(valid_interval_names)
+            if interval_names_diff:
+                raise ValueError(f"The following interval list names not found for .nwb file '{nwb_file_name}': {list(interval_names_diff)}")
+    
+    def _create_interval_list_names_dict(self, interval_list_names):
+
+        # Get all interval list names for all .nwb files if no interval list names are specified
+        if interval_list_names is None:
+            interval_list_names = {nwb_file_name : self.get_interval_list_names(nwb_file_name) for nwb_file_name in self._nwb_file_names}
+        # Use same interval list names for all .nwb files if no .nwb files are specified as keys
+        interval_list_names = parse_iterable_inputs(interval_list_names)
+        if not isinstance(interval_list_names, dict):
+            interval_list_names = {nwb_file_name : interval_list_names for nwb_file_name in self.nwb_file_names}
+        # Get all interval list names for any .nwb file names not specified
+        for nwb_file_name in self._nwb_file_names:
+            if nwb_file_name not in interval_list_names.keys():
+                interval_list_names[nwb_file_name] = self.get_interval_list_names(nwb_file_name)
+        return interval_list_names
+    
 
 
 class TableTools(TableReader):

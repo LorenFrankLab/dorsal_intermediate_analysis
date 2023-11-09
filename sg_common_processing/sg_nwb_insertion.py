@@ -1,13 +1,13 @@
 import warnings
 warnings.filterwarnings('ignore')
 
-from spyglass.common import Nwbfile
-from spyglass.data_import import insert_sessions
-
 from raw_conversion.file_info import FileInfo
 
 from sg_common_utils.preprocessing_info import PreprocessingInfo
 from sg_common_utils.sg_helpers import sql_or_query
+from sg_common_utils.sg_tables import Nwbfile
+
+from spyglass.data_import import insert_sessions
 
 from utils import verbose_printer
 from utils.abstract_classes import DataWriter
@@ -27,7 +27,7 @@ class InsertionProcessor(DataWriter):
         self._file_info = FileInfo(subject_name=self.subject_name, dates=self.dates)
         # Get preprocessing analyses info
         self._preprocessing_info = PreprocessingInfo(subject_names=self.subject_name)
-        self._inserted_nwb_file_names = self._preprocessing_info.insertion['Nwbfile'].fetch('nwb_file_name')
+        self._inserted_nwb_file_names = self._preprocessing_info.nwb_file_names
     
     @property
     def inserted_nwb_file_names(self):
@@ -62,7 +62,7 @@ class InsertionProcessor(DataWriter):
     def remove_nwb_files(self):
 
         # Delete each .nwb file from the database
-        for nwb_file_name in self._preprocessing_info._nwb_file_names:
+        for nwb_file_name in self._preprocessing_info.nwb_file_names:
             verbose_printer.print_header(f"{nwb_file_name}")
             InsertionProcessor._depopulate_nwb_file_table(nwb_file_name)
         
@@ -95,7 +95,7 @@ class InsertionProcessor(DataWriter):
 
         # Get list of already inserted files
         self._preprocessing_info = PreprocessingInfo(subject_names=self.subject_name)
-        self._inserted_nwb_file_names = self._preprocessing_info.insertion['Nwbfile'].fetch('nwb_file_name')
+        self._inserted_nwb_file_names = self._preprocessing_info.nwb_file_names
     
     def _print(self, dates):
 
